@@ -1,0 +1,11 @@
+language: perl
+
+env: RT_FIX_DEPS_CMD="cpanm --quiet --notest --install %s"
+
+install:
+  - autoconf
+  - ./configure --with-db-type=SQLite --enable-layout=inplace
+  - sbin/rt-test-dependencies --install --with-SQLite --with-dev
+  - mkdir -p var
+
+script: make test
