@@ -1,6 +1,16 @@
 use strict;
 use warnings;
 
+RT->Config->Set( MailCommand  => 'sendmailpipe' );
+RT->Config->Set( SetOutgoingMailFrom => 1 );
+RT->Config->Set( OverrideOutgoingMailFrom  => { Default => 'queue@example.invalid' } );
+
+# Ensure that the fake sendmail knows where to write to
+$ENV{RT_MAILLOGFILE} = RT::Test->temp_directory . "/sendmailpipe.log";
+my $fake = File::Spec->rel2abs( File::Spec->catfile(
+        't', 'web', 'fake-sendmail' ) );
+RT->Config->Set( SendmailPath => $fake);
+
 $ENV{RT_TEST_WEB_HANDLER} = 'plack+rt-server';
 use RT::Test
     tests       => undef,
