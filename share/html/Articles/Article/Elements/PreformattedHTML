@@ -45,59 +45,76 @@
 %# those contributions and any derivatives thereof.
 %#
 %# END BPS TAGGED BLOCK }}}
-<%INIT>
-# Nothing to do if we don't get an article id
-$IncludeArticleId //= $DECODED_ARGS->{'IncludeArticleId'};
-return unless $IncludeArticleId;
+% if ($include{Name}) {
+<h2>#<%$Article->Id%>: <%$Article->Name || loc('(no name)')%></h2>
+% }
+% if ( $include{Summary} && ($Article->Summary||'') =~ /\S/ ) {
+<% $Article->Summary %><br />
+% }
+% while (my $cf = $cfs->Next) {
+%   next unless $include{"CF-Title-".$cf->Id} or $include{"CF-Value-".$cf->Id};
+%   my $values = $Article->CustomFieldValues($cf->Id);
+%   if ($values->Count == 1) {
+%     my $value = $values->First; 
+%     if ($include{"CF-Title-".$cf->Id}) {
+<h3><%      $cf->Name%>:</h3>
+%     }
+%     if ($value && $include{"CF-Value-".$cf->Id}) {
+<%      $get_content->( $cf, $value ) %>
+%     }
+%   } else {
+%     my $val = $values->Next;
+%     if ($include{"CF-Title-".$cf->Id}) {
+<h3><%      $cf->Name%>:</h3>
+%     }
+<ul>
+%     if ($val && $include{"CF-Value-".$cf->Id}) {
+<li><%      $get_content->( $cf, $val ) %></li>
+%     }
+%     while ($val = $values->Next) { 
+%       if ($include{"CF-Value-".$cf->Id}) {
+<li><%        $get_content->( $cf, $val ) %></li>
+%       }
+%     }
+</ul>
+%   }
+% }
+<%init>
+my $class = $Article->ClassObj;
+my %include = (Name => 1, Summary => 1, EscapeHTML => 1);
+my $cfs = $class->ArticleCustomFields;
+while ( my $cf = $cfs->Next ) {
+    $include{"CF-Title-" . $cf->Id} = 1;
+    $include{"CF-Value-" . $cf->Id} = 1;
+}
+foreach my $key ( keys %include ) {
+    $include{$key} = not $class->FirstAttribute("Skip-$key");
+}
 
-my $article = RT::Article->new($session{'CurrentUser'});
-my ($ret, $msg) = $article->Load($IncludeArticleId);
+my $get_content = sub {
+    my ($cf, $value) = @_;
+    return '' unless $value;
 
-if ( $ret && $article->Id ){
-
-    my $Ticket = $ARGS{Ticket};
-    my $parent_args = $m->caller_args(-1);
-
-    if ( !$Ticket and $parent_args->{id} and $parent_args->{id} ne 'new' ) {
-        $Ticket = RT::Ticket->new($session{'CurrentUser'});
-        $Ticket->Load($parent_args->{id});
-        unless ( $Ticket->id ) {
-            $RT::Logger->error("Couldn't load ticket ".  $parent_args->{id} );
-        }
-    }
-
-    my $queue_id;
-    $queue_id = $QueueObj->id if $QueueObj && $QueueObj->id;
-    $queue_id ||= $Ticket->Queue if $Ticket && $Ticket->Queue;
-    if (   $queue_id
-        && !$article->ClassObj->IsApplied(0)
-        && !$article->ClassObj->IsApplied($queue_id) )
-    {
-        RT->Logger->warning( "The Class of the Article #$IncludeArticleId is not applied to the Queue #$queue_id" );
-        return;
-    }
-
-    my $formatted_article;
-
-    if (RT->Config->Get('MessageBoxRichText',  $session{'CurrentUser'})) {
-        $formatted_article = $m->scomp('/Articles/Article/Elements/PreformattedHTML',
-            Article => $article
-        );
+    my $comp = "/Elements/ShowCustomField". $cf->Type;
+    my $content;
+    if ( $m->comp_exists( $comp ) ) {
+        $content = $m->scomp( $comp, Object => $value );
     } else {
-        $formatted_article = $m->scomp('/Articles/Article/Elements/Preformatted',
-            Article => $article
-        );
+        $content = $m->interp->apply_escapes( $value->Content, 'h' );
     }
 
-    $m->callback( Article => $article, Ticket => $Ticket, formatted_article => \$formatted_article, ARGSRef => \%ARGS );
+    return '' unless defined $content && length $content;
 
-    $m->print($formatted_article);
-}
-else {
-    RT::Logger->error("Unable to load article $IncludeArticleId: $msg");
-}
-</%INIT>
-<%ARGS>
-$IncludeArticleId => undef
-$QueueObj => undef
-</%ARGS>
+    $m->callback(
+        %ARGS,
+        CallbackName => 'ProcessContent', 
+        content => \$content,
+    );
+
+    return $content;
+};
+
+</%init>
+<%args>
+$Article
+</%args>
